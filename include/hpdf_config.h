@@ -6,9 +6,7 @@
 /* include/config.h.in.  Generated from configure.in by autoheader.  */
 
 /* debug build */
-#ifndef LIBHPDF_DEBUG 
-#define LIBHPDF_DEBUG  /**/ 
-#endif
+/* #undef DEBUG */
 
 /* debug trace enabled */
 /* #undef DEBUG_TRACE */
