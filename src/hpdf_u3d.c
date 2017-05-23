@@ -20,6 +20,11 @@
 
 #include <string.h>
 
+#ifndef M_PI
+/* Not defined in MSVC6 */
+#define M_PI       3.14159265358979323846
+#endif
+
 HPDF_U3D
 HPDF_U3D_LoadU3D  (HPDF_MMgr        mmgr,
 				   HPDF_Stream      u3d_data,
@@ -111,6 +116,48 @@ HPDF_LoadU3DFromFile  (HPDF_Doc     pdf,
 
 	/* create file stream */
 	imagedata = HPDF_FileReader_New (pdf->mmgr, filename);
+
+	if (HPDF_Stream_Validate (imagedata)) {
+		image = HPDF_U3D_LoadU3D (pdf->mmgr, imagedata, pdf->xref);
+	} else {
+		image = NULL;
+	}
+
+	/* destroy file stream */
+	HPDF_Stream_Free (imagedata);
+
+	if (!image) {
+		HPDF_CheckError (&pdf->error);
+	}
+	return image;
+}
+
+HPDF_EXPORT(HPDF_Image)
+HPDF_LoadU3DFromMem (HPDF_Doc pdf,
+             const HPDF_BYTE *buffer,
+                    HPDF_UINT size)
+{
+	HPDF_Stream imagedata;
+	HPDF_Image image;
+
+	HPDF_PTRACE ((" HPDF_LoadU3DFromMem\n"));
+
+	if (!HPDF_HasDoc (pdf)) {
+		return NULL;
+	}
+
+	/* create file stream */
+	imagedata = HPDF_MemStream_New (pdf->mmgr, size);
+
+	if (!HPDF_Stream_Validate (imagedata)) {
+		HPDF_RaiseError (&pdf->error, HPDF_INVALID_STREAM, 0);
+		return NULL;
+	}
+
+	if (HPDF_Stream_Write (imagedata, buffer, size) != HPDF_OK) {
+		HPDF_Stream_Free (imagedata);
+		return NULL;
+	}
 
 	if (HPDF_Stream_Validate (imagedata)) {
 		image = HPDF_U3D_LoadU3D (pdf->mmgr, imagedata, pdf->xref);
@@ -264,6 +311,22 @@ HPDF_EXPORT(HPDF_STATUS) HPDF_U3D_Add3DView(HPDF_U3D u3d, HPDF_Dict view)
 }
 
 
+HPDF_EXPORT(HPDF_STATUS) HPDF_U3D_AddOnInstanciate(HPDF_U3D u3d, HPDF_JavaScript javascript)
+{
+	HPDF_STATUS ret = HPDF_OK;
+
+	HPDF_PTRACE ((" HPDF_U3D_AddOnInstanciate\n"));
+
+	if (u3d == NULL || javascript == NULL) {
+		return HPDF_INVALID_U3D_DATA;
+	}
+
+	ret = HPDF_Dict_Add(u3d, "OnInstantiate", javascript);
+
+	return ret;
+}
+
+
 HPDF_EXPORT(HPDF_STATUS) HPDF_U3D_SetDefault3DView(HPDF_U3D u3d, const char *name)
 {
 	HPDF_STATUS ret = HPDF_OK;
@@ -352,7 +415,7 @@ HPDF_EXPORT(HPDF_STATUS) HPDF_3DView_SetLighting(HPDF_Dict view, const char *sch
 	HPDF_STATUS ret = HPDF_OK;
 	HPDF_Dict lighting;
 	int i;
-	static const char *schemes[] =
+	static const char * const schemes[] =
 	{ "Artwork", "None", "White", "Day", "Night", "Hard", "Primary", "Blue", "Red", "Cube", "CAD", "Headlamp" };
 
 	HPDF_PTRACE ((" HPDF_3DView_SetLighting\n"));
@@ -630,8 +693,8 @@ HPDF_EXPORT(HPDF_STATUS) HPDF_3DView_SetCamera(HPDF_Dict view, HPDF_REAL coox, H
 		HPDF_REAL upxprime, upyprime, upzprime;
 		HPDF_REAL sinroll, cosroll;
 
-		sinroll =  sin((roll/180.0f)*M_PI);
-		cosroll =  cos((roll/180.0f)*M_PI);
+		sinroll =  (HPDF_REAL)sin((roll/180.0f)*M_PI);
+		cosroll =  (HPDF_REAL)cos((roll/180.0f)*M_PI);
 		leftxprime = leftx*cosroll + upx*sinroll;
 		leftyprime = lefty*cosroll + upy*sinroll;
 		leftzprime = leftz*cosroll + upz*sinroll;
@@ -647,9 +710,9 @@ HPDF_EXPORT(HPDF_STATUS) HPDF_3DView_SetCamera(HPDF_Dict view, HPDF_REAL coox, H
 	}
 	
 	/* translation vector*/
-	roo = fabs(roo);
+	roo = (HPDF_REAL)fabs(roo);
 	if (roo == 0.0) {
-		roo = 0.000000000000000001;
+		roo = (HPDF_REAL)0.000000000000000001;
 	}
 	transx = coox - roo*viewx;
 	transy = cooy - roo*viewy;
@@ -703,7 +766,7 @@ HPDF_EXPORT(HPDF_STATUS) HPDF_3DView_SetCamera(HPDF_Dict view, HPDF_REAL coox, H
 	ret = HPDF_Dict_Add (view, "C2W", matrix);
 	if (ret != HPDF_OK) goto failed;
 
-	ret = HPDF_Dict_AddNumber (view, "CO", roo);
+	ret = HPDF_Dict_AddNumber (view, "CO", (HPDF_INT32)roo);
 
 failed:
 	if (ret != HPDF_OK) {
@@ -758,5 +821,60 @@ HPDF_Dict HPDF_3DView_New( HPDF_MMgr  mmgr, HPDF_Xref  xref, HPDF_U3D u3d, const
 
 	return view;
 }
+
+
+HPDF_EXPORT(HPDF_STATUS)
+HPDF_3DView_Add3DC3DMeasure(HPDF_Dict       view,
+							HPDF_3DMeasure measure)
+{
+
+	HPDF_STATUS ret = HPDF_OK;
+	HPDF_Array array;
+	void* a;
+
+	a = HPDF_Dict_GetItem (view, "MA", HPDF_OCLASS_ARRAY);
+
+	if ( a )
+	{
+		array = (HPDF_Array)a;
+	}
+	else
+	{
+		array = HPDF_Array_New (view->mmgr);
+		if (!array)
+			return 0;
+
+		if (HPDF_Dict_Add (view, "MA", array) != HPDF_OK)
+			return 0;
+	}
+
+	ret = HPDF_Array_Add(array, measure);
+
+	return ret;
+}
+
+
+HPDF_EXPORT(HPDF_JavaScript) HPDF_CreateJavaScript( HPDF_Doc pdf, const char *code )
+{
+	HPDF_JavaScript javaScript;
+	int len ;
+
+	HPDF_PTRACE ((" HPDF_CreateJavaScript\n"));
+
+	javaScript = (HPDF_JavaScript) HPDF_DictStream_New(pdf->mmgr, pdf->xref);
+	if (!javaScript) {
+		return NULL;
+	}
+
+	len = (HPDF_UINT)strlen(code);
+	if (HPDF_Stream_Write (javaScript->stream, (HPDF_BYTE *)code, len) != HPDF_OK) {
+		HPDF_Dict_Free(javaScript);
+		return NULL;
+	}
+
+	return javaScript;
+}
+
+
 #undef normalize
 
